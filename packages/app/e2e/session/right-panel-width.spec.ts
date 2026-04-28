@@ -1,13 +1,15 @@
 import { test, expect } from "../fixtures"
-import { titlebarRightSelector } from "../selectors"
+import { sessionTurnListSelector, titlebarRightSelector } from "../selectors"
+import { withSession } from "../actions"
 
 test("right panel width persists across reload", async ({ page, gotoSession }) => {
   await gotoSession()
 
   // Open the right panel via the titlebar toggle (matches e2e/commands/panels.spec.ts).
   const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
-  await rightToggle.click()
   const aside = page.locator("#right-panel")
+  const hiddenBefore = (await aside.getAttribute("aria-hidden")) === "true"
+  if (hiddenBefore) await rightToggle.click()
   await expect(aside).toHaveAttribute("aria-hidden", "false")
 
   // Drive the resize through the exposed layout hook (see packages/app/src/context/layout.tsx DEV block).
@@ -35,4 +37,33 @@ test("right panel width persists across reload", async ({ page, gotoSession }) =
 
   const widthAfter = await aside2.evaluate((el) => (el as HTMLElement).style.width)
   expect(widthAfter).toBe("400px")
+})
+
+test("session chat column stays capped when right panel opens", async ({ page, sdk, gotoSession }) => {
+  await page.setViewportSize({ width: 1600, height: 1000 })
+
+  await withSession(sdk, `e2e panel layout ${Date.now()}`, async (session) => {
+    await gotoSession(session.id)
+
+    const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
+    const aside = page.locator("#right-panel")
+    const initiallyOpen = (await aside.getAttribute("aria-hidden")) === "false"
+    if (initiallyOpen) {
+      await rightToggle.click()
+      await expect(aside).toHaveAttribute("aria-hidden", "true")
+    }
+
+    const turnList = page.locator(sessionTurnListSelector)
+    await expect(turnList).toBeVisible()
+
+    const widthBefore = await turnList.evaluate((el) => Math.round(el.getBoundingClientRect().width))
+    expect(widthBefore).toBe(1000)
+
+    await rightToggle.click()
+
+    await expect(aside).toHaveAttribute("aria-hidden", "false")
+
+    const widthAfter = await turnList.evaluate((el) => Math.round(el.getBoundingClientRect().width))
+    expect(widthAfter).toBe(widthBefore)
+  })
 })
