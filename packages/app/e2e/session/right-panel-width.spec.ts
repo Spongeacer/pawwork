@@ -7,7 +7,7 @@ test("right panel width persists across reload", async ({ page, gotoSession }) =
 
   // Open the right panel via the titlebar toggle (matches e2e/commands/panels.spec.ts).
   const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
-  const aside = page.locator("#right-panel")
+  const aside = page.getByRole("complementary", { name: "Right utility panel", includeHidden: true })
   const hiddenBefore = (await aside.getAttribute("aria-hidden")) === "true"
   if (hiddenBefore) await rightToggle.click()
   await expect(aside).toHaveAttribute("aria-hidden", "false")
@@ -29,7 +29,7 @@ test("right panel width persists across reload", async ({ page, gotoSession }) =
   await page.reload()
   await gotoSession()
 
-  const aside2 = page.locator("#right-panel")
+  const aside2 = page.getByRole("complementary", { name: "Right utility panel", includeHidden: true })
   const toggle2 = page.locator(`${titlebarRightSelector} button`).first()
   const hiddenAfter = (await aside2.getAttribute("aria-hidden")) === "true"
   if (hiddenAfter) await toggle2.click()
@@ -46,7 +46,7 @@ test("session chat column stays capped when right panel opens", async ({ page, s
     await gotoSession(session.id)
 
     const rightToggle = page.locator(`${titlebarRightSelector} button`).first()
-    const aside = page.locator("#right-panel")
+    const aside = page.getByRole("complementary", { name: "Right utility panel", includeHidden: true })
     const initiallyOpen = (await aside.getAttribute("aria-hidden")) === "false"
     if (initiallyOpen) {
       await rightToggle.click()
@@ -63,7 +63,6 @@ test("session chat column stays capped when right panel opens", async ({ page, s
 
     await expect(aside).toHaveAttribute("aria-hidden", "false")
 
-    const widthAfter = await turnList.evaluate((el) => Math.round(el.getBoundingClientRect().width))
-    expect(widthAfter).toBe(widthBefore)
+    await expect.poll(async () => turnList.evaluate((el) => Math.round(el.getBoundingClientRect().width))).toBe(widthBefore)
   })
 })
