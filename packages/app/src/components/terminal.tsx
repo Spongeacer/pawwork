@@ -430,7 +430,9 @@ export const Terminal = (props: TerminalProps) => {
       if (local.autoFocus !== false) focusTerminal()
 
       if (typeof document !== "undefined" && document.fonts) {
-        document.fonts.ready.then(scheduleFit)
+        document.fonts.ready.then(scheduleFit).catch(() => {
+          // Ignore font loading errors — scheduleFit is best-effort
+        })
       }
 
       const onResize = t.onResize((size) => {
@@ -442,7 +444,7 @@ export const Terminal = (props: TerminalProps) => {
       })
       cleanups.push(() => disposeIfDisposable(onData))
       const onKey = t.onKey((key) => {
-        if (key.key == "Enter") {
+        if (key.key === "Enter") {
           props.onSubmit?.()
         }
       })

@@ -188,7 +188,7 @@ function normalizeMessages(
         if (typeof msg.content === "string") {
           msg.content = sanitizeSurrogates(msg.content)
         } else if (Array.isArray(msg.content)) {
-          msg.content = (msg.content as any[]).map((content) => {
+          msg.content = msg.content.map((content) => {
             if (content.type === "text") content.text = sanitizeSurrogates(content.text)
             return content
           }) as never
