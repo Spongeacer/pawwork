@@ -120,6 +120,10 @@ async function substitute(text: string, input: ParseSource, missing: "error" | "
     if (filePath.startsWith("~/")) filePath = path.join(Global.Path.home, filePath.slice(2))
 
     const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(configDir, filePath)
+    const relativeToConfig = path.relative(configDir, resolvedPath)
+    if (relativeToConfig.startsWith("..") || path.isAbsolute(relativeToConfig)) {
+      throw new JsonError({ path: configSource, message: `file reference escapes config directory: "${token}"` })
+    }
     const fileContent = (
       await Filesystem.readText(resolvedPath).catch((error: NodeJS.ErrnoException) => {
         if (missing === "empty") return ""

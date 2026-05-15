@@ -28,6 +28,11 @@ const QueryCommand = cmd({
   handler: async (args: { query?: string; format: string }) => {
     const query = args.query as string | undefined
     if (query) {
+      const normalized = query.trim().toLowerCase()
+      if (!normalized.startsWith("select") && !normalized.startsWith("pragma") && !normalized.startsWith("with")) {
+        UI.error("Only read-only queries (SELECT / PRAGMA / WITH) are allowed.")
+        process.exit(1)
+      }
       const db = new BunDatabase(Database.Path, { readonly: true })
       try {
         const result = db.query(query).all() as Record<string, unknown>[]

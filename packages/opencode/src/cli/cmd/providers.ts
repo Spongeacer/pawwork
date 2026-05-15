@@ -297,6 +297,11 @@ export const ProvidersLoginCommand = cmd({
         prompts.intro("Add credential")
         if (args.url) {
           const url = args.url.replace(/\/+$/, "")
+          if (!/^https?:\/\//i.test(url)) {
+            prompts.log.error("URL must use http or https protocol")
+            prompts.outro("Done")
+            return
+          }
           const wellknown = (await fetch(`${url}/.well-known/opencode`).then((x) => x.json())) as {
             auth: { command: string[]; env: string }
           }
