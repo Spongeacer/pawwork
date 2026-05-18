@@ -1,6 +1,8 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test"
+import type { AsyncStorage } from "@solid-primitives/storage"
 
 type PersistTestingType = typeof import("./persist").PersistTesting
+type ShouldDebugPersistedTerminalRead = typeof import("./persist").shouldDebugPersistedTerminalRead
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>()
@@ -55,7 +57,22 @@ class MemoryStorage implements Storage {
 
 const storage = new MemoryStorage()
 
+function asyncMemoryStorage(initial: Record<string, string> = {}) {
+  const values = new Map(Object.entries(initial))
+  const api: AsyncStorage = {
+    getItem: async (key) => values.get(key) ?? null,
+    setItem: async (key, value) => {
+      values.set(key, value)
+    },
+    removeItem: async (key) => {
+      values.delete(key)
+    },
+  }
+  return { api, values }
+}
+
 let persistTesting: PersistTestingType
+let shouldDebugPersistedTerminalRead: ShouldDebugPersistedTerminalRead
 
 beforeAll(async () => {
   mock.module("@/context/platform", () => ({
@@ -64,6 +81,7 @@ beforeAll(async () => {
 
   const mod = await import("./persist")
   persistTesting = mod.PersistTesting
+  shouldDebugPersistedTerminalRead = mod.shouldDebugPersistedTerminalRead
 })
 
 beforeEach(() => {
@@ -195,11 +213,38 @@ describe("persist localStorage resilience", () => {
     expect(legacy.getItem("layout.page.v1")).toBeNull()
   })
 
+  test("async reader removes malformed current values without legacy fallback", async () => {
+    const current = asyncMemoryStorage({ "layout-page": "{" })
+    const legacy = asyncMemoryStorage({ "layout.page.v1": JSON.stringify({ pinned: ["legacy"] }) })
+
+    const result = await persistTesting.readPersistedAsync({
+      current: current.api,
+      legacyStore: legacy.api,
+      key: "layout-page",
+      defaults: { pinned: [] as string[] },
+      currentLegacy: [],
+      legacy: ["layout.page.v1"],
+    })
+
+    expect(result).toBeNull()
+    expect(current.values.has("layout-page")).toBeFalse()
+    expect(legacy.values.has("layout.page.v1")).toBeTrue()
+  })
+
   test("workspace storage sanitizes Windows filename characters", () => {
     const result = persistTesting.workspaceStorage("C:\\Users\\foo")
 
     expect(result).toStartWith("pawwork.workspace.")
     expect(result.endsWith(".dat")).toBeTrue()
     expect(/[:\\/]/.test(result)).toBeFalse()
+  })
+
+  test("does not emit workspace terminal persisted debug logs outside dev", () => {
+    expect(shouldDebugPersistedTerminalRead("workspace:terminal", false)).toBe(false)
+  })
+
+  test("keeps workspace terminal persisted debug logs dev-only", () => {
+    expect(shouldDebugPersistedTerminalRead("workspace:terminal", true)).toBe(true)
+    expect(shouldDebugPersistedTerminalRead("layout-page", true)).toBe(false)
   })
 })

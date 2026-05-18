@@ -29,13 +29,51 @@ const PAWWORK_JSON = JSON.parse(
 )
 
 // Token name prefixes that belong to the STANDARDS-regulated color set.
-// Non-color tokens (font-*, space-*, radius-*, type-*, duration-*, letter-*,
-// line-height-*, --color-scheme) are excluded from parity checks.
+// Non-color tokens are excluded from the broad prefix match. PR1 typography
+// role properties are mirrored explicitly via TYPOGRAPHY_ROLE_TOKENS below.
 const REGULATED_PREFIXES =
-  /^(brand|bg|surface|fg|border|icon|success|warning|error|diff|shadow|ring|sidebar)/
+  /^(brand|bg|surface|fg|border|icon|success|warning|error|diff|shadow|ring|sidebar|code)/
 
 // Tokens whose light value is intentionally identical in dark mode.
-const SAME_IN_DARK = new Set(["brand-primary", "brand-primary-on", "fg-on-brand", "brand-danger", "brand-danger-hover"])
+const SAME_IN_DARK = new Set(["brand-primary", "brand-primary-on", "fg-on-brand"])
+
+const TYPOGRAPHY_ROLE_TOKENS = new Set([
+  "font-size-display",
+  "font-size-h1",
+  "font-size-h2",
+  "font-size-h3",
+  "font-size-body",
+  "font-size-caption",
+  "font-size-mono",
+  "font-size-mono-small",
+  "font-size-kbd",
+  "font-weight-display",
+  "font-weight-h1",
+  "font-weight-h2",
+  "font-weight-h3",
+  "font-weight-body",
+  "font-weight-caption",
+  "font-weight-emphasis",
+  "font-weight-mono",
+  "font-weight-mono-small",
+  "font-weight-kbd",
+  "line-height-display",
+  "line-height-h1",
+  "line-height-h2",
+  "line-height-h3",
+  "line-height-body",
+  "line-height-caption",
+  "line-height-mono",
+  "line-height-mono-small",
+  "line-height-kbd",
+  "letter-spacing-display",
+  "letter-spacing-h1",
+  "letter-spacing-cjk",
+])
+
+function expectedOverrideKeys(regulatedKeys: Map<string, string>) {
+  return new Set([...regulatedKeys.keys(), ...TYPOGRAPHY_ROLE_TOKENS])
+}
 
 // ─── CSS parsing helpers ────────────────────────────────────────────────────
 
@@ -148,14 +186,14 @@ describe("theme-parity: light overrides ↔ theme.css :root", () => {
     expect(cssLightRegulated.size).toBeGreaterThan(10)
   })
 
-  test("pawwork.json light.overrides keys exactly match regulated :root set", () => {
+  test("pawwork.json light.overrides keys exactly match regulated :root + typography set", () => {
     const jsonKeys = new Set(Object.keys(jsonLight))
-    const cssKeys = cssLightRegulated
+    const expectedKeys = expectedOverrideKeys(cssLightRegulated)
 
-    const extra = [...jsonKeys].filter((k) => !cssKeys.has(k))
+    const extra = [...jsonKeys].filter((k) => !expectedKeys.has(k))
     expect(extra, `extra keys in light.overrides (not in theme.css :root): ${extra.join(", ")}`).toEqual([])
 
-    const missing = [...cssKeys.keys()].filter((k) => !jsonKeys.has(k))
+    const missing = [...expectedKeys].filter((k) => !jsonKeys.has(k))
     expect(
       missing,
       `missing keys in light.overrides (in theme.css :root but not in pawwork.json): ${missing.join(", ")}`,
@@ -175,14 +213,17 @@ describe("theme-parity: dark overrides ↔ theme.css [data-color-scheme='dark']"
     expect(cssDarkRegulated.size).toBeGreaterThan(10)
   })
 
-  test("pawwork.json dark.overrides keys exactly match regulated dark block set", () => {
+  test("pawwork.json dark.overrides keys exactly match regulated dark + typography set", () => {
     const jsonKeys = new Set(Object.keys(jsonDark))
-    const cssKeys = cssDarkRegulated
+    const expectedKeys = expectedOverrideKeys(cssDarkRegulated)
 
-    const extra = [...jsonKeys].filter((k) => !cssKeys.has(k))
-    expect(extra, `extra keys in dark.overrides (not in theme.css dark block): ${extra.join(", ")}`).toEqual([])
+    const extra = [...jsonKeys].filter((k) => !expectedKeys.has(k))
+    expect(
+      extra,
+      `extra keys in dark.overrides (not in theme.css dark block or typography root set): ${extra.join(", ")}`,
+    ).toEqual([])
 
-    const missing = [...cssKeys.keys()].filter((k) => !jsonKeys.has(k))
+    const missing = [...expectedKeys].filter((k) => !jsonKeys.has(k))
     expect(
       missing,
       `missing keys in dark.overrides (in theme.css dark block but not in pawwork.json): ${missing.join(", ")}`,
@@ -191,8 +232,10 @@ describe("theme-parity: dark overrides ↔ theme.css [data-color-scheme='dark']"
 
   for (const [key, jsonValue] of Object.entries(jsonDark)) {
     test(`dark.overrides["${key}"] matches theme.css`, () => {
-      expect(cssDark.has(key), `theme.css dark block is missing --${key}`).toBe(true)
-      expect(normalize(jsonValue)).toBe(normalize(cssDark.get(key)!))
+      const source = TYPOGRAPHY_ROLE_TOKENS.has(key) ? cssLight : cssDark
+      const blockName = TYPOGRAPHY_ROLE_TOKENS.has(key) ? ":root" : "dark block"
+      expect(source.has(key), `theme.css ${blockName} is missing --${key}`).toBe(true)
+      expect(normalize(jsonValue)).toBe(normalize(source.get(key)!))
     })
   }
 })
@@ -254,6 +297,69 @@ describe("theme-parity: runtime-critical non-regulated tokens", () => {
 })
 
 // ─── Parser unit fixtures ────────────────────────────────────────────────────
+
+// ─── #642 PR0 invariants ────────────────────────────────────────────────────
+
+// `code` is now inside REGULATED_PREFIXES (Step 2 of #642 plan Task 0.2), so
+// light/dark parity for --code-surface is auto-covered by the existing
+// exact-set test. The assertion below additionally pins the three theme-block
+// values. `radius` remains outside REGULATED_PREFIXES (radii live in
+// tailwind/@theme too, and the dual-namespace invariant is a separate
+// dimension); the radii assertion below covers it directly.
+
+const TAILWIND_CSS = readFileSync(
+  join(ROOT, "src/styles/tailwind/index.css"),
+  "utf-8",
+)
+
+describe("#642 PR0: radii dual-namespace", () => {
+  test("radii are pixel-equal between theme.css :root and tailwind @theme", () => {
+    const themeDecls = parseDeclarations(extractBlock(THEME_CSS, ":root"))
+    const tailwindDecls = parseDeclarations(extractBlock(TAILWIND_CSS, "@theme"))
+    const expected = { sm: "6px", md: "10px", lg: "14px" }
+    for (const [name, value] of Object.entries(expected)) {
+      expect(themeDecls.get(`radius-${name}`)).toBe(value)
+      expect(tailwindDecls.get(`radius-${name}`)).toBe(value)
+    }
+  })
+})
+
+describe("#642 PR0: --code-surface three-block presence", () => {
+  test("--code-surface is declared in all three theme blocks with expected values", () => {
+    const lightDecls = parseDeclarations(extractBlock(THEME_CSS, ":root"))
+    const darkDecls = parseDeclarations(
+      extractBlock(THEME_CSS, ':root[data-color-scheme="dark"]'),
+    )
+    const mediaDecls = parseDeclarations(
+      extractBlock(THEME_CSS, "@media (prefers-color-scheme: dark)"),
+    )
+
+    expect(normalize(lightDecls.get("code-surface") ?? "")).toBe(
+      normalize("rgba(0, 0, 0, 0.04)"),
+    )
+    expect(normalize(darkDecls.get("code-surface") ?? "")).toBe(
+      normalize("rgba(255, 255, 255, 0.06)"),
+    )
+    expect(normalize(mediaDecls.get("code-surface") ?? "")).toBe(
+      normalize("rgba(255, 255, 255, 0.06)"),
+    )
+  })
+})
+
+const MARKED_TSX = readFileSync(
+  join(ROOT, "src/context/marked.tsx"),
+  "utf-8",
+)
+
+describe("#642 PR0: shiki OpenCode theme background binds to --code-surface", () => {
+  test("editor.background = var(--code-surface) (DESIGN.md L179)", () => {
+    // Shiki single-theme codeToHtml inlines editor.background on
+    // <pre class="shiki">, which beats any plain CSS rule on .shiki.
+    // Binding the theme value itself is the only way fence-code blocks
+    // actually render on the --code-surface alpha overlay.
+    expect(MARKED_TSX).toMatch(/"editor\.background":\s*"var\(--code-surface\)"/)
+  })
+})
 
 describe("theme-parser: extractBlock fixtures", () => {
   test("extracts a top-level selector block", () => {

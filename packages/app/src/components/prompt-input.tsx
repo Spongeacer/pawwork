@@ -1,5 +1,5 @@
 import { useSpring } from "@opencode-ai/ui/motion-spring"
-import { createEffect, on, Component, For, Show, onCleanup, createMemo, createSignal } from "solid-js"
+import { createEffect, on, Component, For, Show, createMemo, createSignal } from "solid-js"
 import { createStore } from "solid-js/store"
 import { useLocal } from "@/context/local"
 import { useFile } from "@/context/file"
@@ -45,7 +45,6 @@ import { PromptDragOverlay } from "./prompt-input/drag-overlay"
 import { promptPlaceholder } from "./prompt-input/placeholder"
 import { promptSendDisabled } from "./prompt-input/readiness"
 import { ImagePreview } from "@opencode-ai/ui/image-preview"
-import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 
 interface PromptInputProps {
   class?: string
@@ -64,36 +63,7 @@ interface PromptInputProps {
   sessionIDControlled?: boolean
   actionReady?: () => boolean
   abortReady?: () => boolean
-  selectedSkill?: () => PawworkSkillName | undefined
 }
-
-const EXAMPLES = [
-  "prompt.example.1",
-  "prompt.example.2",
-  "prompt.example.3",
-  "prompt.example.4",
-  "prompt.example.5",
-  "prompt.example.6",
-  "prompt.example.7",
-  "prompt.example.8",
-  "prompt.example.9",
-  "prompt.example.10",
-  "prompt.example.11",
-  "prompt.example.12",
-  "prompt.example.13",
-  "prompt.example.14",
-  "prompt.example.15",
-  "prompt.example.16",
-  "prompt.example.17",
-  "prompt.example.18",
-  "prompt.example.19",
-  "prompt.example.20",
-  "prompt.example.21",
-  "prompt.example.22",
-  "prompt.example.23",
-  "prompt.example.24",
-  "prompt.example.25",
-] as const
 
 export const PromptInput: Component<PromptInputProps> = (props) => {
   const sdk = useSDK()
@@ -155,7 +125,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     popover: null,
     historyIndex: -1,
     savedPrompt: null,
-    placeholder: Math.floor(Math.random() * EXAMPLES.length),
     draggingType: null,
     mode: "normal",
     applyingHistory: false,
@@ -187,7 +156,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       return (
         <div class="flex items-center gap-2">
           <span>{language.t("prompt.action.stop")}</span>
-          <span class="text-icon-base text-13-medium text-[10px]!">{language.t("common.key.esc")}</span>
+          <span class="text-icon-base text-h3 text-[10px]!">{language.t("common.key.esc")}</span>
         </div>
       )
     }
@@ -208,14 +177,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     return items.filter((item) => !item.comment?.trim())
   })
 
-  const hasUserPrompt = createMemo(() => {
-    const sessionID = activeSessionID()
-    if (!sessionID) return false
-    const messages = sync.data.message[sessionID]
-    if (!messages) return false
-    return messages.some((m) => m.role === "user")
-  })
-
   const { addToHistory, navigateHistory } = createHistoryNavigation({
     store,
     setStore,
@@ -224,8 +185,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     editorRef: () => editorRef,
     queueScroll,
   })
-
-  const suggest = createMemo(() => !hasUserPrompt())
 
   createEffect(
     on(
@@ -240,10 +199,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       ? promptPlaceholder({
           mode: store.mode,
           commentCount: commentCount(),
-          example: suggest() ? language.t(EXAMPLES[store.placeholder]) : "",
-          suggest: suggest(),
-          selectedSkill: props.selectedSkill?.(),
-          t: (key, params) => language.t(key as Parameters<typeof language.t>[0], params as never),
+          t: (key) => language.t(key as Parameters<typeof language.t>[0]),
         })
       : language.t("prompt.loading"),
   )
@@ -302,16 +258,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
     setStore("historyIndex", -1)
     setStore("savedPrompt", null)
   }
-
-  createEffect(() => {
-    activeSessionID()
-    if (activeSessionID()) return
-    if (!suggest()) return
-    const interval = setInterval(() => {
-      setStore("placeholder", (prev) => (prev + 1) % EXAMPLES.length)
-    }, 6500)
-    onCleanup(() => clearInterval(interval))
-  })
 
   let popoversRef: PopoverControllers | null = null
   const popoversAccess = () => {
@@ -458,7 +404,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       resetHistoryNavigation(true)
     },
     setMode: (mode) => setStore("mode", mode),
-    selectedSkill: props.selectedSkill,
     setPopover: (popover) => setStore("popover", popover),
     newSessionWorktree: () => props.newSessionWorktree,
     onNewSessionWorktreeReset: props.onNewSessionWorktreeReset,
@@ -597,7 +542,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
               onKeyDown={handleKeyDown}
               classList={{
                 "select-text": true,
-                "w-full pl-4 pr-4 pt-4 text-13-regular text-fg-strong focus:outline-none whitespace-pre-wrap": true,
+                "w-full pl-4 pr-4 pt-4 text-body text-fg-strong focus:outline-none whitespace-pre-wrap": true,
                 "[&_[data-type=file]]:text-syntax-property": true,
                 "[&_[data-type=agent]]:text-syntax-type": true,
                 "font-mono!": store.mode === "shell",
@@ -608,7 +553,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
             <Show when={!prompt.dirty()}>
               <div
                 data-component="prompt-placeholder"
-                class="absolute top-0 inset-x-0 pl-4 pr-4 pt-4 text-13-regular text-fg-weak pointer-events-none whitespace-nowrap truncate"
+                class="absolute top-0 inset-x-0 pl-4 pr-4 pt-4 text-body text-fg-weak pointer-events-none whitespace-nowrap truncate"
                 classList={{ "font-mono!": store.mode === "shell" }}
                 style={{ "padding-bottom": space }}
               >
@@ -689,7 +634,6 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
                     actionReady: actionReady(),
                     abortReady: abortReady(),
                     blank: blank(),
-                    selectedSkill: !!props.selectedSkill?.(),
                   })}
                   aria-label={stopping() ? language.t("prompt.action.stop") : language.t("prompt.action.send")}
                 />

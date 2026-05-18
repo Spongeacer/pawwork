@@ -1,8 +1,10 @@
 import { For, Show, createMemo, type Accessor, type JSX } from "solid-js"
 import type { Part } from "@opencode-ai/sdk/v2"
+import type { Todo } from "@opencode-ai/sdk/v2/client"
 import { useLanguage } from "@/context/language"
-import { extractSources, type TodoItem } from "@/pages/session/session-status-extractors"
+import { extractSources } from "@/pages/session/session-status-extractors"
 import { selectSessionTodos } from "@/pages/session/session-todos"
+import type { SessionTodoItem } from "@/pages/session/todos/todo-model"
 
 const TODO_STATUS_STYLES: Record<string, { dot: string; text: string }> = {
   completed: { dot: "bg-icon-success-base", text: "" },
@@ -14,22 +16,22 @@ const TODO_STATUS_STYLES: Record<string, { dot: string; text: string }> = {
 function Section(props: { title: string; children: JSX.Element }) {
   return (
     <div class="flex flex-col gap-2 px-4 py-3">
-      <div class="text-13-medium uppercase tracking-wide text-fg-weaker">{props.title}</div>
+      <div class="text-h3 uppercase tracking-wide text-fg-weaker">{props.title}</div>
       {props.children}
     </div>
   )
 }
 
 function Empty(props: { text: string }) {
-  return <div class="text-13-regular text-fg-weaker">{props.text}</div>
+  return <div class="text-body text-fg-weaker">{props.text}</div>
 }
 
-function TodoRow(props: { todo: TodoItem }) {
+function TodoRow(props: { todo: SessionTodoItem }) {
   const style = () => TODO_STATUS_STYLES[props.todo.status] ?? TODO_STATUS_STYLES.pending
   return (
-    <div class="flex items-start gap-2.5 py-1">
+    <div data-slot="status-summary-todo" data-state={props.todo.status} class="flex items-start gap-2.5 py-1">
       <div class={`size-2 rounded-full shrink-0 mt-1.5 ${style().dot}`} aria-hidden />
-      <div class={`text-13-regular text-fg-base min-w-0 ${style().text}`}>{props.todo.content}</div>
+      <div class={`text-body text-fg-base min-w-0 ${style().text}`}>{props.todo.content}</div>
     </div>
   )
 }
@@ -37,14 +39,24 @@ function TodoRow(props: { todo: TodoItem }) {
 function SourceRow(props: { url: string }) {
   return (
     <div class="flex items-center gap-2 py-1" title={props.url}>
-      <span class="text-13-regular text-fg-base truncate min-w-0">{props.url}</span>
+      <span class="text-body text-fg-base truncate min-w-0">{props.url}</span>
     </div>
   )
 }
 
-export function SessionStatusSummary(props: { parts: Accessor<Part[]> }) {
+export function SessionStatusSummary(props: {
+  backend?: Accessor<Todo[] | undefined>
+  backendClearActivePartsAt?: Accessor<number | undefined>
+  parts: Accessor<Part[]>
+}) {
   const language = useLanguage()
-  const todos = createMemo(() => selectSessionTodos({ parts: props.parts() }))
+  const todos = createMemo(() =>
+    selectSessionTodos({
+      backend: props.backend?.(),
+      backendClearActivePartsAt: props.backendClearActivePartsAt?.(),
+      parts: props.parts(),
+    }),
+  )
   const sources = createMemo(() => extractSources(props.parts()))
 
   return (

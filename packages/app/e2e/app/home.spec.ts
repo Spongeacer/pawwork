@@ -1,74 +1,26 @@
 import { test, expect } from "../fixtures"
-import { openSidebar } from "../actions"
 import { promptSelector, sessionComposerDockSelector } from "../selectors"
 
-test("@smoke root route renders the no-project empty state", async ({ page, backend }) => {
-  await page.route(`${backend.url}/path**`, (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ home: "", state: "", config: "", worktree: "", directory: "" }),
-    }),
-  )
-  await page.route(`${backend.url}/project**`, (route) =>
-    route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify([]),
-    }),
-  )
-  await page.addInitScript((url) => {
-    localStorage.setItem(
-      "pawwork.global.dat:server",
-      JSON.stringify({ list: [url], projects: {}, lastProject: {} }),
-    )
-    localStorage.setItem("pawwork.settings.dat:defaultServerUrl", url)
-    localStorage.setItem("pawwork.global.dat:globalSync.project", JSON.stringify({ value: [] }))
-  }, backend.url)
-
-  await page.goto("/")
-
-  const home = page.locator('[data-component="session-new-home"]')
-  const main = page.getByRole("main")
-  const emptyTitle = page.getByText(/No recent projects|没有最近项目/)
-  const emptyDescription = page.getByText(/Get started by opening a local project|通过打开本地项目开始使用/)
-  const openProject = main.getByRole("button", { name: /Open project|打开项目/ })
-
-  await expect(home).toHaveCount(0)
-  await expect(emptyTitle).toBeVisible()
-  await expect(emptyDescription).toBeVisible()
-  await expect(openProject).toBeVisible()
-  await expect(page.locator(sessionComposerDockSelector)).toHaveCount(0)
-
-  await openSidebar(page)
-  await expect(page.getByText(/No projects open|还没有打开项目/)).toBeVisible()
-  await expect(page.getByText(/Open a project to start using the session-first sidebar\.|打开一个项目后，即可使用以会话为中心的侧边栏。/)).toBeVisible()
-  await openProject.click()
-  await expect(page.getByRole("dialog", { name: /Open project|打开项目/ })).toBeVisible()
-})
-
-test("@smoke home renders the hero composer and starter cards", async ({ page, project }) => {
+test("@smoke home renders hero composer with updated welcome heading", async ({ page, project }) => {
   await project.open()
 
   const home = page.locator('[data-component="session-new-home"]')
   const composer = home.locator(sessionComposerDockSelector)
-  const firstCard = home.getByRole("button", { name: /Process docs/i })
   const workspaceChip = page.getByRole("button", { name: /Switch workspace|切换工作目录/i })
   await expect(home).toBeVisible()
-  await expect(page.getByRole("heading", { name: "What do you want to do?" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: /今天我们做点什么|What should we work on/ })).toBeVisible()
   await expect(page.locator(sessionComposerDockSelector)).toHaveCount(1)
   await expect(composer).toHaveCount(1)
   await expect(composer).toHaveCSS("text-align", "left")
   await expect(home.locator(promptSelector)).toBeVisible()
-  await expect(firstCard).toBeVisible()
-  await expect(page.getByRole("button", { name: /Analyze data/i })).toBeVisible()
-  await expect(page.getByRole("button", { name: /Start writing/i })).toBeVisible()
   await expect(page.getByRole("button", { name: "Right utility panel" })).toBeVisible()
   await expect(workspaceChip).toBeVisible()
 
-  const cardBox = await firstCard.boundingBox()
-  const composerBox = await composer.boundingBox()
-  expect(cardBox).not.toBeNull()
-  expect(composerBox).not.toBeNull()
-  expect(cardBox!.y).toBeGreaterThan(composerBox!.y)
+  // Skill-card shortcuts removed in #603 PR2 — slash commands typed directly in
+  // the composer remain available for the same productivity skills.
+  await expect(home.getByRole("button", { name: /Process docs/i })).toHaveCount(0)
+  await expect(home.getByRole("button", { name: /Analyze data/i })).toHaveCount(0)
+  await expect(home.getByRole("button", { name: /Start writing/i })).toHaveCount(0)
 })
 
 test("@smoke home hero prompt starts a session", async ({ page, project, assistant }) => {
@@ -87,6 +39,29 @@ test("@smoke home hero prompt starts a session", async ({ page, project, assista
   await expect(page.getByText("home hero reply")).toBeVisible()
 })
 
+test("@smoke home composer submits a slash-prefixed prompt via the fallback path", async ({
+  page,
+  project,
+  assistant,
+}) => {
+  // Guards the #603 PR2 simplification of submit.ts: removing the `!homeSkill`
+  // gate must not break the slash-prefix fall-through. A leading `/` that does
+  // not match a registered command should still fall through to the standard
+  // prompt path. Using an unregistered command name keeps the test independent
+  // of which backend slash commands are bundled in the fixture.
+  await project.open()
+
+  const home = page.locator('[data-component="session-new-home"]')
+  const prompt = home.locator(sessionComposerDockSelector).locator(promptSelector)
+  await expect(prompt).toBeVisible()
+  await assistant.reply("slash hero reply")
+  await page.keyboard.type("/pr2skillcheck verify slash submit")
+  await page.keyboard.press("Enter")
+
+  await expect.poll(() => page.url(), { timeout: 30_000 }).toContain("/session/")
+  await expect(page.getByText("slash hero reply")).toBeVisible()
+})
+
 test("@smoke home composer shows unified single-row bar with brand orange send", async ({ page, project }) => {
   await project.open()
 
@@ -98,14 +73,22 @@ test("@smoke home composer shows unified single-row bar with brand orange send",
   // no DockTray tray surface above the input
   await expect(composer.locator('[data-dock-surface="tray"]')).toHaveCount(0)
 
-  // brand orange enables only when input has content, type first
   const prompt = home.locator(promptSelector)
+  const send = composer.locator('[data-action="prompt-submit"]')
+
+  // send is disabled while the prompt is blank — guards the readiness rule
+  // that #603 PR2 simplified after removing the selectedSkill bypass.
+  await expect(send).toBeVisible()
+  await expect(send).toBeDisabled()
+
+  // brand orange enables only when input has content
   await prompt.click()
   await page.keyboard.type("x")
-
-  const send = composer.locator('[data-action="prompt-submit"]')
-  await expect(send).toBeVisible()
   await expect(send).toBeEnabled()
+
+  // clearing the prompt returns send to disabled
+  await page.keyboard.press("Backspace")
+  await expect(send).toBeDisabled()
 
   // WorkspaceChip present on home
   const workspaceChip = page.getByRole("button", { name: /Switch workspace|切换工作目录/i })

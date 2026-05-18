@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
-import { buildPriorityReview, classifyPriority, TRIAGE_MARKER } from "../../../../.github/scripts/pr-priority-triage.js"
+import { validateLabelPolicy } from "../../../../.github/scripts/label-policy-check.js"
+import {
+  buildPriorityReview,
+  classifyPriority,
+  planPriorityLabels,
+  TRIAGE_MARKER,
+} from "../../../../.github/scripts/pr-priority-triage.js"
 import { parseWorkflow, readWorkflow } from "./workflow-parser"
 
 const repoRoot = path.join(import.meta.dir, "../../../..")
@@ -8,21 +14,51 @@ const labelerConfigPath = path.join(repoRoot, ".github", "labeler.yml")
 const labelerWorkflowPath = path.join(repoRoot, ".github", "workflows", "labeler.yml")
 const triageWorkflowPath = path.join(repoRoot, ".github", "workflows", "pr-priority-triage.yml")
 
+type LabelerRule = {
+  "changed-files"?: Array<{
+    "any-glob-to-any-file"?: string[]
+  }>
+}
+
+type LabelerConfig = Record<string, LabelerRule[]>
+
+function labelerLabelsForGlob(glob: string) {
+  const config = parseWorkflow(labelerConfigPath) as unknown as LabelerConfig
+  return Object.entries(config)
+    .filter(([, rules]) =>
+      rules.some((rule) =>
+        rule["changed-files"]?.some((changedFilesRule) =>
+          changedFilesRule["any-glob-to-any-file"]?.includes(glob),
+        ),
+      ),
+    )
+    .map(([label]) => label)
+}
+
 describe("pr routing workflows", () => {
-  test("defines labeler routing on current repo labels", () => {
+  test("defines labeler routing for repo areas and workflow policy labels", () => {
     const config = readWorkflow(labelerConfigPath)
     expect(config).toContain("ci:")
+    expect(config).toContain("task:")
+    expect(config).not.toContain("P3:")
     expect(config).toContain("platform:")
     expect(config).toContain("app:")
     expect(config).toContain("ui:")
     expect(config).toContain("harness:")
-    expect(config).toContain("documentation:")
+    expect(config).not.toContain("documentation:")
     expect(config).toContain(".github/workflows/**")
     expect(config).toContain("packages/desktop-electron/**")
     expect(config).toContain("packages/app/**")
     expect(config).toContain("packages/opencode/**")
     expect(config).toContain("**/*.tsx")
-    expect(config).toContain("**/*.md")
+    expect(config).not.toContain("**/*.md")
+  })
+
+  test("labels workflow PRs with type and routing while priority triage owns priority", () => {
+    const labels = labelerLabelsForGlob(".github/workflows/**")
+
+    expect(new Set(labels)).toEqual(new Set(["ci", "task"]))
+    expect(validateLabelPolicy({ itemType: "pull_request", labels: [...labels, "P3"] }).ok).toBe(true)
   })
 
   test("pins labeler and triage workflow contracts", () => {
@@ -40,7 +76,7 @@ describe("pr routing workflows", () => {
       contents: "read",
       "pull-requests": "write",
     })
-    expect(labelerStep?.uses).toBe("actions/labeler@8558fd74291d67161a8a78ce36a881fa63b766a9")
+    expect(labelerStep?.uses).toBe("actions/labeler@f27b608878404679385c85cfa523b85ccb86e213")
     expect(labelerStep?.with).toEqual({ "sync-labels": true })
     expect(labelerWorkflow).not.toContain("persist-credentials: true")
 
@@ -57,6 +93,7 @@ describe("pr routing workflows", () => {
     })
     expect(triageParsed.permissions).toEqual({
       contents: "read",
+      issues: "write",
       "pull-requests": "write",
     })
     expect(triageParsed.concurrency?.group).toBe("pr-priority-triage-${{ github.event.pull_request.number }}")
@@ -66,18 +103,22 @@ describe("pr routing workflows", () => {
       "persist-credentials": false,
       ref: "${{ github.event.pull_request.base.sha }}",
     })
-    expect(script?.uses).toBe("actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b")
+    expect(script?.uses).toBe("actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3")
     expect(script?.env).toEqual({ PR_NUMBER: "${{ github.event.pull_request.number }}" })
     expect(script?.run).toBeUndefined()
     expect(triageWorkflow).toContain('event: "COMMENT"')
     expect(triageWorkflow).toContain("TRIAGE_MARKER")
     expect(triageWorkflow).toContain("github.rest.pulls.listFiles")
+    expect(triageWorkflow).toContain("github.rest.issues.listLabelsOnIssue")
+    expect(triageWorkflow).toContain("github.rest.issues.addLabels")
+    expect(triageWorkflow).toContain("github.rest.issues.removeLabel")
+    expect(triageWorkflow).not.toContain("github.rest.issues.setLabels")
+    expect(triageWorkflow).toContain("planPriorityLabels")
     expect(triageWorkflow).toContain("github.rest.pulls.listReviews")
     expect(triageWorkflow).toContain("pathToFileURL")
     expect(triageWorkflow).toContain("process.env.GITHUB_WORKSPACE")
     expect(triageWorkflow).toContain("await import(")
     expect(triageWorkflow).not.toContain('require("./.github/scripts/pr-priority-triage.js")')
-    expect(triageWorkflow).not.toContain("issues:")
   })
 })
 
@@ -112,6 +153,43 @@ describe("pr priority triage helper", () => {
     expect(review.body).toContain(TRIAGE_MARKER)
     expect(review.body).toContain("Suggested priority: P3")
     expect(review.body).toContain("P1/P0 are reserved for maintainer confirmation")
+  })
+
+  test("plans priority labels without letting default P3 override mixed or manual priority", () => {
+    expect(planPriorityLabels([".github/workflows/labeler.yml"], ["ci", "task"])).toEqual({
+      suggestedPriority: "P3",
+      desiredPriority: "P3",
+      addLabels: ["P3"],
+      removeLabels: [],
+    })
+
+    expect(planPriorityLabels([".github/workflows/labeler.yml"], [])).toEqual({
+      suggestedPriority: "P3",
+      desiredPriority: "P3",
+      addLabels: ["P3"],
+      removeLabels: [],
+    })
+
+    expect(
+      planPriorityLabels([".github/workflows/labeler.yml", "packages/app/src/context/global-sync.tsx"], [
+        "ci",
+        "task",
+        "app",
+        "P3",
+      ]),
+    ).toEqual({
+      suggestedPriority: "P2",
+      desiredPriority: "P2",
+      addLabels: ["P2"],
+      removeLabels: ["P3"],
+    })
+
+    expect(planPriorityLabels([".github/workflows/labeler.yml"], ["ci", "task", "P2", "P3"])).toEqual({
+      suggestedPriority: "P3",
+      desiredPriority: "P2",
+      addLabels: [],
+      removeLabels: ["P3"],
+    })
   })
 
   test("matches recent PR sanity cases", () => {

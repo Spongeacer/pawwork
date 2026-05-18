@@ -7,6 +7,12 @@ import { PtyID } from "@/pty/schema"
 import { NotFoundError } from "../../storage/db"
 import { errors } from "../error"
 
+export function assertPtyConnectTarget(info: unknown) {
+  if (!info) {
+    throw new NotFoundError({ message: "PTY session not found" })
+  }
+}
+
 export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
   return new Hono()
     .get(
@@ -97,12 +103,16 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
             },
           },
           ...errors(400),
+          ...errors(404),
         },
       }),
       validator("param", z.object({ ptyID: PtyID.zod })),
       validator("json", Pty.UpdateInput),
       async (c) => {
         const info = await Pty.update(c.req.valid("param").ptyID, c.req.valid("json"))
+        if (!info) {
+          throw new NotFoundError({ message: "Session not found" })
+        }
         return c.json(info)
       },
     )
@@ -126,7 +136,12 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
       }),
       validator("param", z.object({ ptyID: PtyID.zod })),
       async (c) => {
-        await Pty.remove(c.req.valid("param").ptyID)
+        const id = c.req.valid("param").ptyID
+        const info = await Pty.get(id)
+        if (!info) {
+          throw new NotFoundError({ message: "Session not found" })
+        }
+        await Pty.remove(id)
         return c.json(true)
       },
     )
@@ -159,7 +174,7 @@ export function PtyRoutes(upgradeWebSocket: UpgradeWebSocket) {
           return parsed
         })()
         let handler: Awaited<ReturnType<typeof Pty.connect>>
-        if (!(await Pty.get(id))) throw new Error("Session not found")
+        assertPtyConnectTarget(await Pty.get(id))
 
         type Socket = {
           readyState: number

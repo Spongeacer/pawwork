@@ -1,7 +1,6 @@
 import { Match, Show, Switch, type ComponentProps, type JSX } from "solid-js"
 import { Tabs } from "@opencode-ai/ui/tabs"
 import { NewSessionView, SessionHeader } from "@/components/session"
-import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 import type { useLanguage } from "@/context/language"
 import type { createSizing } from "@/pages/session/helpers"
 import { MessageTimeline } from "@/pages/session/message-timeline"
@@ -51,7 +50,6 @@ export function SessionMainView(props: {
   composerSession: JSX.Element
   composerHome: (ctx: {
     onModeChange: (mode: "normal" | "shell") => void
-    selectedSkill: () => PawworkSkillName | undefined
   }) => JSX.Element
   canReview: () => boolean
   reviewDiffs: ReturnType<typeof createSessionReviewState>["reviewDiffs"]
@@ -110,19 +108,19 @@ export function SessionMainView(props: {
                 >
                   <div class="flex flex-col items-center gap-2">
                     <div class="size-8 rounded-full border border-border-weak border-t-brand-primary animate-spin" />
-                    <div class="text-13-medium text-fg-strong">{props.language.t("session.opening")}</div>
-                    <div class="text-12-regular text-fg-weak">{props.language.t("session.messages.loading")}</div>
+                    <div class="text-h3 text-fg-strong">{props.language.t("session.opening")}</div>
+                    <div class="text-caption text-fg-weak">{props.language.t("session.messages.loading")}</div>
                     <div class="mt-2 flex items-center justify-center gap-2">
                       <button
                         type="button"
-                        class="rounded-md border border-border-weak px-3 py-1 text-13-regular text-fg-base transition-colors hover:bg-surface-raised focus:outline-none focus-visible:bg-surface-raised"
+                        class="rounded-md border border-border-weak px-3 py-1 text-body text-fg-base transition-colors hover:bg-surface-raised focus:outline-none focus-visible:bg-surface-raised"
                         onClick={props.onRetryOpenSession}
                       >
                         {props.language.t("common.retry")}
                       </button>
                       <button
                         type="button"
-                        class="rounded-md border border-border-weak px-3 py-1 text-13-regular text-fg-base transition-colors hover:bg-surface-raised focus:outline-none focus-visible:bg-surface-raised"
+                        class="rounded-md border border-border-weak px-3 py-1 text-body text-fg-base transition-colors hover:bg-surface-raised focus:outline-none focus-visible:bg-surface-raised"
                         onClick={props.onOpenNewSession}
                       >
                         {props.language.t("command.session.new")}

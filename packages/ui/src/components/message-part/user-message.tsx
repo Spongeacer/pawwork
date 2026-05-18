@@ -91,27 +91,40 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
               const type = kind(file)
               const name = file.filename ?? i18n.t("ui.message.attachment.alt")
 
+              const isImage = type === "image"
+              const activate = () => {
+                if (isImage) openImagePreview(file.url, name)
+              }
               return (
                 <div
                   data-slot="user-message-attachment"
                   data-type={type}
-                  data-clickable={type === "image" ? "true" : undefined}
-                  title={type === "file" ? name : undefined}
-                  onClick={() => {
-                    if (type === "image") openImagePreview(file.url, name)
+                  data-clickable={isImage ? "true" : undefined}
+                  title={name}
+                  role={isImage ? "button" : undefined}
+                  tabIndex={isImage ? 0 : undefined}
+                  onClick={activate}
+                  onKeyDown={(event) => {
+                    if (!isImage) return
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault()
+                      activate()
+                    }
                   }}
                 >
                   <Show
                     when={type === "image"}
                     fallback={
-                      <div data-slot="user-message-attachment-file">
-                        <FileIcon node={{ path: name, type: "file" }} />
-                        <span data-slot="user-message-attachment-name">{name}</span>
-                      </div>
+                      <span data-slot="user-message-attachment-file">
+                        <FileIcon node={{ path: name, type: "file" }} mono={true} />
+                      </span>
                     }
                   >
                     <img data-slot="user-message-attachment-image" src={file.url} alt={name} />
                   </Show>
+                  <span data-slot="user-message-attachment-name-overlay">
+                    <span data-slot="user-message-attachment-name">{name}</span>
+                  </span>
                 </div>
               )
             }}
@@ -129,17 +142,17 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
             <Show when={metaHead() || metaTail()}>
               <span data-slot="user-message-meta-wrap">
                 <Show when={metaHead()}>
-                  <span data-slot="user-message-meta" class="text-13-regular text-fg-weak cursor-default">
+                  <span data-slot="user-message-meta" class="text-body text-fg-weak cursor-default">
                     {metaHead()}
                   </span>
                 </Show>
                 <Show when={metaHead() && metaTail()}>
-                  <span data-slot="user-message-meta-sep" class="text-13-regular text-fg-weak cursor-default">
+                  <span data-slot="user-message-meta-sep" class="text-body text-fg-weak cursor-default">
                     {"\u00A0\u00B7\u00A0"}
                   </span>
                 </Show>
                 <Show when={metaTail()}>
-                  <span data-slot="user-message-meta-tail" class="text-13-regular text-fg-weak cursor-default">
+                  <span data-slot="user-message-meta-tail" class="text-body text-fg-weak cursor-default">
                     {metaTail()}
                   </span>
                 </Show>

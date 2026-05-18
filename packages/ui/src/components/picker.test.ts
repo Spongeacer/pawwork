@@ -98,16 +98,16 @@ describe("picker.css: item contract", () => {
     expect(block).toContain("--radius-sm")
   })
 
-  test("item font-size uses --font-size-small (13px)", () => {
+  test("item font-size uses --font-size-body", () => {
     const itemIdx = css.indexOf("[data-picker-item] {")
     const block = css.slice(itemIdx, itemIdx + 800)
-    expect(block).toContain("--font-size-small")
+    expect(block).toContain("--font-size-body")
   })
 
-  test("item font-weight uses --font-weight-regular by default", () => {
+  test("item font-weight uses --font-weight-body by default", () => {
     const itemIdx = css.indexOf("[data-picker-item] {")
     const block = css.slice(itemIdx, itemIdx + 800)
-    expect(block).toContain("--font-weight-regular")
+    expect(block).toContain("--font-weight-body")
   })
 
   test("item hover uses --row-hover-overlay", () => {
@@ -117,9 +117,9 @@ describe("picker.css: item contract", () => {
     )
   })
 
-  test("item selected uses --row-active-overlay + medium weight", () => {
+  test("item selected uses --row-active-overlay + emphasis weight", () => {
     expect(css).toMatch(
-      /\[data-picker-item\]:where\(\[data-selected\]\)[\s\S]*?--row-active-overlay[\s\S]*?--font-weight-medium/,
+      /\[data-picker-item\]:where\(\[data-selected\]\)[\s\S]*?--row-active-overlay[\s\S]*?--font-weight-emphasis/,
     )
   })
 

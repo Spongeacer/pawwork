@@ -31,17 +31,17 @@ export function FileSearchBar(props: {
           ref={props.setInput}
           placeholder={i18n.t("ui.fileSearch.placeholder")}
           value={props.query()}
-          class="w-40 bg-transparent outline-none text-13-regular text-fg-strong placeholder:text-fg-weak"
+          class="w-40 bg-transparent outline-none text-body text-fg-strong placeholder:text-fg-weak"
           onInput={(e) => props.onInput(e.currentTarget.value)}
           onKeyDown={(e) => props.onKeyDown(e as KeyboardEvent)}
         />
-        <div class="shrink-0 text-13-regular text-fg-weak tabular-nums text-right" style={{ width: "10ch" }}>
+        <div class="shrink-0 text-body text-fg-weak tabular-nums text-right" style={{ width: "10ch" }}>
           {props.count() ? `${props.index() + 1}/${props.count()}` : "0/0"}
         </div>
         <div class="flex items-center">
           <button
             type="button"
-            class="h-[26px] w-[26px] grid place-items-center rounded text-fg-weak hover:bg-surface-sunken hover:text-fg-strong disabled:opacity-40 disabled:pointer-events-none"
+            class="h-[26px] w-[26px] grid place-items-center rounded text-fg-weak hover:bg-row-active-overlay hover:text-fg-strong disabled:opacity-40 disabled:pointer-events-none"
             disabled={props.count() === 0}
             aria-label={i18n.t("ui.fileSearch.previousMatch")}
             onClick={props.onPrev}
@@ -50,7 +50,7 @@ export function FileSearchBar(props: {
           </button>
           <button
             type="button"
-            class="h-[26px] w-[26px] grid place-items-center rounded text-fg-weak hover:bg-surface-sunken hover:text-fg-strong disabled:opacity-40 disabled:pointer-events-none"
+            class="h-[26px] w-[26px] grid place-items-center rounded text-fg-weak hover:bg-row-active-overlay hover:text-fg-strong disabled:opacity-40 disabled:pointer-events-none"
             disabled={props.count() === 0}
             aria-label={i18n.t("ui.fileSearch.nextMatch")}
             onClick={props.onNext}
@@ -60,7 +60,7 @@ export function FileSearchBar(props: {
         </div>
         <button
           type="button"
-          class="h-[26px] w-[26px] grid place-items-center rounded text-fg-weak hover:bg-surface-sunken hover:text-fg-strong"
+          class="h-[26px] w-[26px] grid place-items-center rounded text-fg-weak hover:bg-row-active-overlay hover:text-fg-strong"
           aria-label={i18n.t("ui.fileSearch.close")}
           onClick={props.onClose}
         >

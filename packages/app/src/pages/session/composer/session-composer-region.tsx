@@ -16,7 +16,6 @@ import type { SessionComposerState } from "@/pages/session/composer/session-comp
 import { DOCK_MOTION } from "@/pages/session/composer/motion"
 import { SessionTodoDock } from "@/pages/session/composer/session-todo-dock"
 import type { FollowupDraft } from "@/components/prompt-input/submit"
-import type { PawworkSkillName } from "@/components/session/pawwork-skill-meta"
 
 export function SessionComposerRegion(props: {
   variant?: "session" | "home"
@@ -31,7 +30,6 @@ export function SessionComposerRegion(props: {
   onSubmit: () => void
   onResponseSubmit: () => void
   onModeChange?: (mode: "normal" | "shell") => void
-  selectedSkill?: () => PawworkSkillName | undefined
   displaySessionID?: string
   displaySessionKey?: string
   followup?: {
@@ -170,7 +168,7 @@ export function SessionComposerRegion(props: {
                   when={props.state.permissionRequest()}
                   keyed
                   fallback={
-                    <DockSegment class="w-full min-h-32 md:min-h-40 px-4 py-3 text-13-regular text-fg-weak whitespace-pre-wrap pointer-events-none">
+                    <DockSegment class="w-full min-h-32 md:min-h-40 px-4 py-3 text-body text-fg-weak whitespace-pre-wrap pointer-events-none">
                       {handoffPrompt() || language.t("prompt.loading")}
                     </DockSegment>
                   }
@@ -242,12 +240,11 @@ export function SessionComposerRegion(props: {
                             onModeChange={props.onModeChange}
                             actionReady={() => props.actionReady ?? true}
                             abortReady={() => props.abortReady ?? props.actionReady ?? true}
-                            selectedSkill={props.selectedSkill}
                           />
                         </Show>
                       }
                     >
-                      <DockSegment ref={props.inputRef} class="w-full p-3 text-16-regular text-fg-weak">
+                      <DockSegment ref={props.inputRef} class="w-full p-3 text-h2 font-body text-fg-weak">
                         <span>{language.t("session.child.promptDisabled")} </span>
                         <Show when={parentID()}>
                           <button

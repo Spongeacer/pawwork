@@ -1,6 +1,18 @@
 import type { ColorValue, DesktopTheme, HexColor, ResolvedTheme, ThemeVariant } from "./types"
 import { blend, generateNeutralScale, generateScale, hexToOklch, hexToRgb, shift, withAlpha } from "./color"
 
+const THEME_TOKEN_NAME_PATTERN = /^[a-z0-9-]+$/
+const CSS_SINGLE_DECLARATION_VALUE_PATTERN = /^(?!.*\/\*)(?!.*\*\/)[^;{}\x00-\x1F\x7F]+$/
+
+function assertThemeCssDeclaration(key: string, value: unknown) {
+  if (!THEME_TOKEN_NAME_PATTERN.test(key)) {
+    throw new Error(`Invalid theme token "${key}"`)
+  }
+  if (typeof value !== "string" || !CSS_SINGLE_DECLARATION_VALUE_PATTERN.test(value)) {
+    throw new Error(`Invalid theme CSS value for "${key}"`)
+  }
+}
+
 export function resolveThemeVariant(variant: ThemeVariant, isDark: boolean): ResolvedTheme {
   const colors = getColors(variant)
   const { overrides = {} } = variant
@@ -427,6 +439,7 @@ export function resolveThemeVariant(variant: ThemeVariant, isDark: boolean): Res
   tokens["avatar-text-lime"] = isDark ? "#c4f042" : "#5d770d"
 
   for (const [key, value] of Object.entries(overrides)) {
+    assertThemeCssDeclaration(key, value)
     tokens[key] = value
   }
 
@@ -521,7 +534,7 @@ function generateNeutralAlphaScale(neutralScale: HexColor[], isDark: boolean): H
   return alphas.map((alpha) => blend(neutralScale[11], neutralScale[0], alpha))
 }
 
-function getHex(value: ColorValue | undefined): HexColor | undefined {
+function getHex(value: string | undefined): HexColor | undefined {
   if (!value?.startsWith("#")) return
   return value as HexColor
 }
@@ -535,6 +548,9 @@ export function resolveTheme(theme: DesktopTheme): { light: ResolvedTheme; dark:
 
 export function themeToCss(tokens: ResolvedTheme): string {
   return Object.entries(tokens)
-    .map(([key, value]) => `--${key}: ${value};`)
+    .map(([key, value]) => {
+      assertThemeCssDeclaration(key, value)
+      return `--${key}: ${value};`
+    })
     .join("\n  ")
 }

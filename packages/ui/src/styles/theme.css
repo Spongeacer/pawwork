@@ -23,37 +23,41 @@
   --font-family-sans--font-feature-settings: normal;
   --font-family-mono--font-feature-settings: normal;
 
-  /* ────────── Type scale primitives · STANDARDS L19 ────────── */
-  --font-size-x-small: 12px;
-  --font-size-small: 13px;
-  --font-size-base: 13px;
-  --font-size-hierarchy: 13px;
-  --font-size-large: 16px;
-  --font-size-x-large: 20px;
-  --font-size-2x-large: 28px;
+  /* ────────── Type role properties · #642 ────────── */
+  --font-size-display: 28px;
+  --font-size-h1: 20px;
+  --font-size-h2: 16px;
+  --font-size-h3: 13px;
+  --font-size-body: 13px;
+  --font-size-caption: 13px;
+  --font-size-mono: 13px;
+  --font-size-mono-small: 12px;
+  --font-size-kbd: 11px;
 
-  --font-weight-regular: 400;
-  --font-weight-medium: 500;
+  --font-weight-display: 500;
+  --font-weight-h1: 500;
+  --font-weight-h2: 500;
+  --font-weight-h3: 500;
+  --font-weight-body: 400;
+  --font-weight-caption: 400;
+  --font-weight-emphasis: 500;
+  --font-weight-mono: 400;
+  --font-weight-mono-small: 400;
+  --font-weight-kbd: 500;
 
-  --line-height-normal: 130%;
-  --line-height-large: 150%;
-  --line-height-x-large: 180%;
-  --line-height-2x-large: 200%;
+  --line-height-display: 1.3;
+  --line-height-h1: 1.3;
+  --line-height-h2: 1.5;
+  --line-height-h3: 1.5;
+  --line-height-body: 1.6;
+  --line-height-caption: 1.3;
+  --line-height-mono: 1.5;
+  --line-height-mono-small: 1.5;
+  --line-height-kbd: 1.3;
 
-  --letter-spacing-normal: 0;
-  --letter-spacing-tight: -0.16px;
-  --letter-spacing-tightest: -0.32px;
-
-  /* ────────── Type roles · STANDARDS L19 (9 semantic roles) ────────── */
-  --type-display:    500 28px/130% var(--font-family-sans);
-  --type-h1:         500 20px/130% var(--font-family-sans);
-  --type-h2:         500 16px/150% var(--font-family-sans);
-  --type-h3:         500 13px/150% var(--font-family-sans);
-  --type-body:       400 13px/160% var(--font-family-sans);
-  --type-caption:    400 13px/130% var(--font-family-sans);
-  --type-mono:       400 13px/150% var(--font-family-mono);
-  --type-mono-small: 400 12px/150% var(--font-family-mono);
-  --type-kbd:        500 11px/130% var(--font-family-mono);
+  --letter-spacing-display: -0.32px;
+  --letter-spacing-h1: -0.16px;
+  --letter-spacing-cjk: 0;
 
   /* ────────── Spacing · STANDARDS L15 (9-tier 4pt grid) ────────── */
   --space-xs:  4px;
@@ -66,18 +70,15 @@
   --space-4xl: 48px;
   --space-5xl: 64px;
 
-  /* ────────── Radius · STANDARDS L16 (4 tiers) ────────── */
+  /* ────────── Radius · STANDARDS L16 (3 tiers) ────────── */
   --radius-sm:   6px;
   --radius-md:   10px;
   --radius-lg:   14px;
-  --radius-pill: 9999px;
 
   /* ────────── Brand · STANDARDS L8 ────────── */
   --brand-primary:       #ff5910;
   --brand-primary-hover: #e04e0e;
   --brand-primary-on:    #ffffff;
-  --brand-danger:        #d24a3a;
-  --brand-danger-hover:  #b53c2e;
 
   /* ────────── Light surface · STANDARDS L9 (2 tiers) ────────── */
   --bg-base:        #ffffff;
@@ -85,6 +86,7 @@
   --surface-base:   #ffffff;
   --surface-raised: #ffffff;
   --surface-sunken: #faf9f7; /* light alias → bg-cream; no third neutral tier (L9) */
+  --code-surface:   rgba(0, 0, 0, 0.04); /* #642: alpha overlay for inline code + code-block */
   --sidebar:        #f9f9f9; /* neutral pale grey, decoupled from bg-cream per ui_kits mock */
   --surface-base-active: rgba(0, 0, 0, 0.051);
 
@@ -274,10 +276,10 @@
 }
 
 /* ──────────────────────────────────────────────────────────────────────────
- * Dark mode source of truth: explicit toggle attribute.
- * The Settings → Appearance toggle (context.tsx) writes dataset.colorScheme
- * to this element; loader.ts handles the CSS color-scheme property separately.
- * This block IS the dark theme; the @media block below is a first-paint mirror only.
+ * Dark first-paint mirror for the explicit toggle attribute.
+ * Runtime dark tokens are written by applyThemeCss() in theme/context.tsx via
+ * the injected <style id="oc-theme"> sheet. This selector keeps pre-boot paint
+ * aligned with that runtime path; it is not the runtime source of truth.
  * ────────────────────────────────────────────────────────────────────────── */
 :root[data-color-scheme="dark"] {
   /* Dark surface · STANDARDS L10 (6-tier warm coffee) */
@@ -286,6 +288,7 @@
   --surface-base:   #221f1c;
   --surface-raised: #3a3431;
   --surface-sunken: #16130f;
+  --code-surface:   rgba(255, 255, 255, 0.06); /* #642: alpha overlay for inline code + code-block */
   --sidebar:        #15120f;
 
   /* Dark ink · STANDARDS L11 (4-tier mirror) */
@@ -433,6 +436,7 @@
     --surface-base:   #221f1c;
     --surface-raised: #3a3431;
     --surface-sunken: #16130f;
+    --code-surface:   rgba(255, 255, 255, 0.06); /* #642: alpha overlay for inline code + code-block */
     --sidebar:        #15120f;
 
     --fg-strong: #f3ede4;
@@ -558,7 +562,10 @@
 /* ────────── Element role mapping (default body styling) ────────── */
 html,
 body {
-  font: var(--type-body);
+  font-family: var(--font-family-sans);
+  font-size: var(--font-size-body);
+  font-weight: var(--font-weight-body);
+  line-height: var(--line-height-body);
   color: var(--fg-strong);
   background: var(--bg-base);
 }
