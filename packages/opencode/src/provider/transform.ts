@@ -683,7 +683,7 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
     id.includes("glm") ||
     (id.includes("mistral") && model.api.npm !== "@ai-sdk/mistral") ||
     id.includes("kimi") ||
-    id.includes("k2p5") ||
+    id.includes("k2p") ||
     id.includes("qwen") ||
     id.includes("big-pickle")
   )
@@ -1085,6 +1085,17 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
   return {}
 }
 
+const REASONING_CONNECT_TIMEOUT_MS = 120_000
+
+/**
+ * Returns watchdog timeout overrides for reasoning-capable models.
+ * Apply at every llm.stream() call site to keep coverage uniform.
+ */
+export function streamTimeouts(model: Provider.Model): { connectTimeoutMs?: number } {
+  if (!model.capabilities.reasoning) return {}
+  return { connectTimeoutMs: REASONING_CONNECT_TIMEOUT_MS }
+}
+
 export function options(input: {
   model: Provider.Model
   sessionID: string
@@ -1154,11 +1165,11 @@ export function options(input: {
     }
   }
 
-  // Enable thinking by default for kimi-k2.5/k2p5 models using anthropic SDK
+  // Enable thinking by default for kimi models using anthropic SDK
   const modelId = input.model.api.id.toLowerCase()
   if (
     (input.model.api.npm === "@ai-sdk/anthropic" || input.model.api.npm === "@ai-sdk/google-vertex/anthropic") &&
-    (modelId.includes("k2p5") || modelId.includes("kimi-k2.5") || modelId.includes("kimi-k2p5"))
+    (modelId.includes("k2p") || modelId.includes("kimi-k2.") || modelId.includes("kimi-k2p"))
   ) {
     result["thinking"] = {
       type: "enabled",
@@ -1497,6 +1508,7 @@ const ProviderTransformTemperatureValue = temperature
 const ProviderTransformTopPValue = topP
 const ProviderTransformTopKValue = topK
 const ProviderTransformSmallOptionsValue = smallOptions
+const ProviderTransformStreamTimeoutsValue = streamTimeouts
 
 export namespace ProviderTransform {
   export const OUTPUT_TOKEN_MAX = ProviderTransformOutputTokenMaxValue
@@ -1512,4 +1524,5 @@ export namespace ProviderTransform {
   export const topP = ProviderTransformTopPValue
   export const topK = ProviderTransformTopKValue
   export const smallOptions = ProviderTransformSmallOptionsValue
+  export const streamTimeouts = ProviderTransformStreamTimeoutsValue
 }

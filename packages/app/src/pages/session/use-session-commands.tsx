@@ -13,6 +13,7 @@ import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
 import { useTerminal } from "@/context/terminal"
 import { showToast } from "@opencode-ai/ui/toast"
+import { isWorkInFlightStatus } from "@opencode-ai/ui/util/session-status"
 import { findLast } from "@opencode-ai/util/array"
 import { canCloseSessionTab, closeSessionTab } from "@/pages/session/close-session-tab"
 import { createSessionTabs } from "@/pages/session/helpers"
@@ -23,6 +24,7 @@ import { UserMessage } from "@opencode-ai/sdk/v2"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { emitRendererDiagnostic, sessionAbortDiagnosticEvent } from "@/context/renderer-diagnostics"
 import { shareSessionCommand, unshareSessionCommand } from "@/pages/session/session-share-command"
+import { rendererAbortDiagnosticSource } from "@/session/abort-source"
 
 export type SessionCommandContext = {
   navigateMessageByOffset: (offset: number) => void
@@ -234,9 +236,9 @@ export const useSessionCommands = (actions: SessionCommandContext) => {
     const sessionID = params.id
     if (!sessionID) return
 
-    if (status().type !== "idle") {
+    if (isWorkInFlightStatus(status())) {
       await sdk.client.session
-        .abort({ sessionID, mode: "hard" })
+        .abort({ sessionID, mode: "hard", source: rendererAbortDiagnosticSource({ sessionID, source: "undo" }) })
         .then((result) => {
           void emitRendererDiagnostic(
             sessionAbortDiagnosticEvent({

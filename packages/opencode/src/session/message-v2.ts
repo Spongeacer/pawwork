@@ -77,6 +77,9 @@ export const APIError = NamedError.create(
     responseHeaders: z.record(z.string(), z.string()).optional(),
     responseBody: z.string().optional(),
     metadata: z.record(z.string(), z.string()).optional(),
+    // Optional for backwards compat with historical JSON; classifyRetry guards on
+    // providerID === ProviderID.opencode and falls to `unknown` when absent.
+    providerID: z.string().optional(),
   }),
 )
 export type APIError = z.infer<typeof APIError.Schema>
@@ -381,6 +384,7 @@ export const ToolStateError = z
     status: z.literal("error"),
     input: z.record(z.string(), z.any()),
     error: z.string(),
+    reason: z.enum(["aborted", "shutdown", "tool_failure"]).optional(),
     metadata: z.record(z.string(), z.any()).optional(),
     time: z.object({
       start: z.number(),
@@ -1181,6 +1185,7 @@ export function fromError(
           responseHeaders: parsed.responseHeaders,
           responseBody: parsed.responseBody,
           metadata: parsed.metadata,
+          providerID: ctx.providerID,
         },
         { cause: e },
       ).toObject()
@@ -1204,6 +1209,7 @@ export function fromError(
               message: parsed.message,
               isRetryable: parsed.isRetryable,
               responseBody: parsed.responseBody,
+              providerID: ctx.providerID,
             },
             {
               cause: e,

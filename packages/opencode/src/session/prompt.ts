@@ -6,6 +6,7 @@ import { SessionID, MessageID, PartID } from "./schema"
 import { MessageV2 } from "./message-v2"
 import { Log } from "@opencode-ai/core/util/log"
 import { SessionRevert } from "./revert"
+import { inheritMetadata } from "./inherit-metadata"
 import * as Session from "./session"
 import { Agent } from "../agent/agent"
 import { Provider } from "../provider/provider"
@@ -40,6 +41,7 @@ import { SessionProcessor } from "./processor"
 import { SessionDiagnostics } from "./diagnostics"
 import { LoopRenderer } from "./loop-renderer"
 import * as Tool from "@/tool/tool"
+import { ExternalResult } from "@/tool/external-result"
 import { Permission } from "@/permission"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
@@ -158,29 +160,19 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
   const targetHash = targetSummaryRes.isFallback ? undefined : SessionDiagnostics.hash(targetSummaryRes.summary)
 
   const parentLoopState = SessionDiagnostics.deriveParentLoopState({
-    successRecords: loopCtx.successRecords,
     errorRecords: loopCtx.errorRecords,
     syntheticBlockSigKeys: loopCtx.syntheticBlockSigKeys,
     parentID,
     currentStepIndex: loopCtx.currentStepIndex,
-    currentMutationEpoch: loopCtx.currentMutationEpoch,
   })
 
-  const failureDecision = SessionDiagnostics.queryGateAction({
+  const decision = SessionDiagnostics.queryGateAction({
     parentLoopState,
     tool: toolId,
     inputHash: inputHashRes.hash,
     targetHash,
     outcome: "failure",
   })
-  const successDecision = SessionDiagnostics.queryGateAction({
-    parentLoopState,
-    tool: toolId,
-    inputHash: inputHashRes.hash,
-    targetHash,
-    outcome: "success",
-  })
-  const decision = SessionDiagnostics.chooseGateDecision(failureDecision, successDecision)
 
   if (decision.action === "observe") return { kind: "observe" } satisfies GateOutcome
 
@@ -188,10 +180,7 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
   if (!sigState) return { kind: "observe" } satisfies GateOutcome
 
   if (decision.action === "block") {
-    const userFacing =
-      decision.outcome === "success"
-        ? `${LOOP_GATE_BLOCK_PREFIX}: repeated tool request blocked before occurrence ${decision.nextOccurrenceCount}`
-        : `${LOOP_GATE_BLOCK_PREFIX}: repeated failed tool request blocked before occurrence ${decision.nextOccurrenceCount}`
+    const userFacing = `${LOOP_GATE_BLOCK_PREFIX}: repeated failed tool request blocked before occurrence ${decision.nextOccurrenceCount}`
     yield* processor.recordSyntheticBlock({
       toolCallId,
       tool: toolId,
@@ -208,10 +197,7 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
   }
 
   const renderedText = LoopRenderer.render({ tool: toolId, state: sigState, locale })
-  const toolErrorMessage =
-    decision.outcome === "success"
-      ? `${LOOP_GATE_STOP_PREFIX}: stop after repeated successful tool request (${decision.nextOccurrenceCount})`
-      : `${LOOP_GATE_STOP_PREFIX}: stop after repeated failures (${decision.nextOccurrenceCount})`
+  const toolErrorMessage = `${LOOP_GATE_STOP_PREFIX}: stop after repeated failures (${decision.nextOccurrenceCount})`
   yield* processor.recordSyntheticStop({
     toolCallId,
     tool: toolId,
@@ -227,6 +213,26 @@ const applyLoopGate = Effect.fn("SessionPrompt.applyLoopGate")(function* (input:
   })
   return { kind: "stop", toolErrorMessage } satisfies GateOutcome
 })
+
+// Title generation reads a single user-side seed. When the user message comes
+// from a command template the first text part may not be the one carrying the
+// invocation metadata — resolvePart can prepend synthetic text in front of a
+// `@file` reference, and the stamper only writes commandInvocation onto the
+// first text part of the *template*, not the first text part of the assembled
+// message. Scan for the part that actually owns the invocation so the title
+// model always sees `Command: /<name> <args>` instead of the expanded body.
+export function deriveCommandTitleSeed(parts: ReadonlyArray<MessageV2.Part>): string | null {
+  const carrier = parts.find((p): p is MessageV2.TextPart => {
+    if (p.type !== "text") return false
+    const meta = (p as { metadata?: { commandInvocation?: { name?: unknown } } }).metadata
+    return typeof meta?.commandInvocation?.name === "string" && meta.commandInvocation.name.length > 0
+  })
+  if (!carrier) return null
+  const meta = (carrier as { metadata?: { commandInvocation?: { name?: unknown; args?: unknown } } }).metadata
+  const name = meta?.commandInvocation?.name as string
+  const args = typeof meta?.commandInvocation?.args === "string" ? meta.commandInvocation.args : ""
+  return "Command: /" + name + (args.length > 0 ? " " + args : "")
+}
 
 function officePathOnly(filepath: string) {
   return OFFICE_EXTS.has(pathSuffix(filepath))
@@ -254,7 +260,7 @@ function modelCanReadMedia(model: Provider.Model, kind: MediaInputKind) {
 }
 
 export interface Interface {
-  readonly cancel: (sessionID: SessionID, options?: { mode?: "soft" | "hard" }) => Effect.Effect<boolean>
+  readonly cancel: (sessionID: SessionID, options?: { mode?: "soft" | "hard"; source?: string }) => Effect.Effect<boolean>
   readonly prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts>
   readonly loop: (input: z.infer<typeof LoopInput>) => Effect.Effect<MessageV2.WithParts>
   readonly shell: (input: ShellInput) => Effect.Effect<MessageV2.WithParts>
@@ -318,16 +324,24 @@ export const layer = Layer.effect(
 
     const cancel = Effect.fn("SessionPrompt.cancel")(function* (
       sessionID: SessionID,
-      options?: { mode?: "soft" | "hard" },
+      options?: { mode?: "soft" | "hard"; source?: string },
     ) {
       const mode = options?.mode ?? "hard"
-      yield* elog.info("cancel", { sessionID, mode })
-      if (mode === "soft" && (yield* blockers.hasAwaitingQuestion(sessionID))) {
-        yield* elog.info("cancel ignored", { sessionID, mode, reason: "awaiting_question" })
+      const source = options?.source ?? "session.prompt.cancel"
+      yield* elog.info("cancel", { sessionID, mode, source })
+      // Soft cancel must not abort sessions where the user is mid-answer.
+      // OR both signals: legacy `hasAwaitingQuestion` (flag-off path) and
+      // `ExternalResult.hasPending` (flag-on path). Mirrors llm.ts silent-
+      // timeout re-arm — see llm.ts:486.
+      if (
+        mode === "soft" &&
+        ((yield* blockers.hasAwaitingQuestion(sessionID)) || ExternalResult.hasPending(sessionID))
+      ) {
+        yield* elog.info("cancel ignored", { sessionID, mode, source, reason: "awaiting_question" })
         return false
       }
       yield* state.cancel(sessionID, {
-        source: "session.prompt.cancel",
+        source,
         reason: mode === "soft" ? "soft_cancel" : "hard_cancel",
         mode,
         viaCtxAbort: false,
@@ -450,18 +464,23 @@ export const layer = Layer.effect(
       const subtasks = firstUser.parts.filter((p): p is MessageV2.SubtaskPart => p.type === "subtask")
       const onlySubtasks = subtasks.length > 0 && firstUser.parts.every((p) => p.type === "subtask")
 
+      const commandTitleSeed = deriveCommandTitleSeed(firstUser.parts)
+
       const ag = yield* agents.get("title")
       if (!ag) return
       const mdl = ag.model
         ? yield* provider.getModel(ag.model.providerID, ag.model.modelID)
         : ((yield* provider.getSmallModel(input.providerID)) ??
           (yield* provider.getModel(input.providerID, input.modelID)))
-      const msgs = onlySubtasks
-        ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
-        : yield* MessageV2.toModelMessagesEffect(context, mdl)
+      const msgs = commandTitleSeed
+        ? [{ role: "user" as const, content: commandTitleSeed }]
+        : onlySubtasks
+          ? [{ role: "user" as const, content: subtasks.map((p) => p.prompt).join("\n") }]
+          : yield* MessageV2.toModelMessagesEffect(context, mdl)
       titleGenerationProgress.set(input.session.id, { startedAt })
       const titleExit = yield* llm
         .stream({
+          ...ProviderTransform.streamTimeouts(mdl),
           agent: ag,
           user: firstInfo,
           system: [],
@@ -731,6 +750,78 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               ruleset: Permission.merge(input.agent.permission, input.session.permission ?? []),
             })
             .pipe(Effect.orDie),
+        externalResult: ({ inputSnapshot, decoder }) =>
+          Effect.gen(function* () {
+            const sessionID = input.session.id
+            const messageID = input.processor.message.id
+            const callID = options.toolCallId
+            const deferred = yield* ExternalResult.register({
+              sessionID,
+              messageID,
+              callID,
+              inputSnapshot,
+              decoder,
+            })
+            // Flip the running tool part's metadata flag so the renderer's
+            // "preparing..." placeholder transitions to active input controls.
+            // The dock / inline marker key on `metadata.externalResultReady`.
+            yield* input.processor.updateToolCall(callID, (match) => {
+              if (!["running", "pending"].includes(match.state.status)) return match
+              const existing =
+                "metadata" in match.state && match.state.metadata && typeof match.state.metadata === "object"
+                  ? match.state.metadata
+                  : {}
+              // Mirror ctx.metadata: pending parts are upgraded to running
+              // (status / input / time.start). Today's stream order flips the
+              // part to running before execute() is invoked, but keeping the
+              // two helpers symmetric guards against future re-orderings.
+              if (match.state.status === "pending") {
+                return {
+                  ...match,
+                  state: {
+                    status: "running",
+                    input: args,
+                    time: { start: Date.now() },
+                    metadata: { ...existing, externalResultReady: true },
+                  },
+                }
+              }
+              return {
+                ...match,
+                state: {
+                  ...match.state,
+                  metadata: { ...existing, externalResultReady: true },
+                },
+              }
+            })
+            // Wire the AbortSignal: a turn abort flips the pending Deferred
+            // to ExternalResultError({reason: "aborted"}). Session destroy is
+            // handled separately by ExternalResult.onSessionDestroyed.
+            const abortHandler = () => {
+              run.promise(
+                ExternalResult.failIfPending({
+                  sessionID,
+                  messageID,
+                  callID,
+                  error: new ExternalResult.Error({ reason: "aborted" }),
+                }),
+              ).catch(() => {})
+            }
+            const signal = options.abortSignal
+            if (signal) {
+              if (signal.aborted) {
+                abortHandler()
+              } else {
+                signal.addEventListener("abort", abortHandler, { once: true })
+              }
+            }
+            try {
+              const result = yield* Deferred.await(deferred)
+              return result as Tool.ExternalResultOutcome
+            } finally {
+              if (signal) signal.removeEventListener("abort", abortHandler)
+            }
+          }),
       })
 
       for (const item of yield* registry.tools({
@@ -1532,13 +1623,15 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     })
                     if (attachments.length) {
                       pieces.push(
-                        ...attachments.map((a) => ({
-                          ...a,
-                          synthetic: true,
-                          filename: a.filename ?? part.filename,
-                          messageID: info.id,
-                          sessionID: input.sessionID,
-                        })),
+                        ...attachments.map((a) =>
+                          inheritMetadata(part, {
+                            ...a,
+                            synthetic: true,
+                            filename: a.filename ?? part.filename,
+                            messageID: info.id,
+                            sessionID: input.sessionID,
+                          }),
+                        ),
                       )
                     }
                     if (attachments.length < result.attachments.length) {
@@ -1617,18 +1710,18 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                   synthetic: true,
                   text: `Called the Read tool with the following input: {"filePath":"${filepath}"}`,
                 },
-                {
+                inheritMetadata(part, {
                   id: part.id,
                   messageID: info.id,
                   sessionID: input.sessionID,
-                  type: "file",
+                  type: "file" as const,
                   url:
                     `data:${part.mime};base64,` +
                     Buffer.from(yield* fsys.readFile(filepath).pipe(Effect.catch(Effect.die))).toString("base64"),
                   mime: part.mime,
                   filename: part.filename!,
                   source: part.source,
-                },
+                }),
               ]
             }
           }
@@ -2203,6 +2296,36 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
       const templateParts = yield* resolvePromptParts(template)
       const isSubtask = (agent.mode === "subagent" && cmd.subtask !== false) || cmd.subtask === true
+
+      const stampedTemplate = (() => {
+        const trimmedArgs = (input.arguments ?? "").trim()
+        const displayArgs = trimmedArgs.length > 80 ? trimmedArgs.slice(0, 79) + "…" : trimmedArgs
+        const invocation: Record<string, unknown> = {
+          name: cmd.name,
+          source: cmd.source ?? "command",
+          icon: "command",
+        }
+        if (trimmedArgs.length > 0) invocation.args = trimmedArgs
+        if (displayArgs.length > 0) invocation.displayArgs = displayArgs
+        let stampedFirstText = false
+        return templateParts.map((part) => {
+          if (part.type === "text") {
+            const prevMeta = (part as { metadata?: Record<string, unknown> }).metadata ?? {}
+            const nextMeta: Record<string, unknown> = { ...prevMeta, commandTemplate: true }
+            if (!stampedFirstText) {
+              nextMeta.commandInvocation = invocation
+              stampedFirstText = true
+            }
+            return { ...part, metadata: nextMeta }
+          }
+          if (part.type === "file") {
+            const prevMeta = (part as { metadata?: Record<string, unknown> }).metadata ?? {}
+            return { ...part, metadata: { ...prevMeta, commandTemplate: true } }
+          }
+          return part
+        })
+      })()
+
       const parts = isSubtask
         ? [
             {
@@ -2216,7 +2339,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               recent_events: [],
             },
           ]
-        : [...templateParts, ...(input.parts ?? [])]
+        : [...stampedTemplate, ...(input.parts ?? [])]
 
       const userAgent = isSubtask ? (input.agent ?? (yield* agents.defaultAgent())) : agentName
       const userModel = isSubtask
@@ -2367,7 +2490,7 @@ export async function resolvePromptParts(template: string) {
   return runPromise((svc) => svc.resolvePromptParts(z.string().parse(template)))
 }
 
-export async function cancel(sessionID: SessionID, options?: { mode?: "soft" | "hard" }) {
+export async function cancel(sessionID: SessionID, options?: { mode?: "soft" | "hard"; source?: string }) {
   return runPromise((svc) => svc.cancel(SessionID.zod.parse(sessionID), options))
 }
 
